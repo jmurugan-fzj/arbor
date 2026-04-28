@@ -1,0 +1,128 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "CMake Debug Configure (Configure Debug build with Ninja)",
+            "type": "shell",
+            "command": "${workspaceFolder}/.vscode/configure-debug.sh",
+            "group": {
+                "kind": "build"
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "clear": true // clears the terminal before each run
+            },
+            "problemMatcher": [], // No compiler errors here, just a script
+            "detail": "Cleans build-debug, recreates it and runs CMake with Ninja (Debug)."
+        },
+        {
+            "label": "CMake Release Configure (Configure Release build with Ninja)",
+            "type": "shell",
+            "command": "${workspaceFolder}/.vscode/configure-release.sh",
+            "group": {
+                "kind": "build"
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "clear": true // clears the terminal before each run
+            },
+            "problemMatcher": [], // No compiler errors here, just a script
+            "detail": "Cleans build-release, recreates it and runs CMake with Ninja (Release)."
+        },        
+        {
+            "label": "CMake: Build (Debug)",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "${workspaceFolder}/build-debug",
+                "--config",
+                "Debug",
+                "--parallel"
+            ],
+            "group": "build",
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "detail": "Builds the project in the debug folder."
+        },
+        {
+            "label": "CMake: Build (Release)",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "${workspaceFolder}/build-release",
+                "--config",
+                "Release",
+                "--parallel"
+            ],
+            "group": "build",
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "detail": "Builds the project in the release folder."
+        },        
+        {
+            "label": "CMake: Build (Debug) examples",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "${workspaceFolder}/build-debug",
+                "--target",
+                "examples",
+                "--config",
+                "Debug",
+                "--parallel"
+            ],
+            "group": "build",
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "detail": "Builds the project in the debug folder."
+        },
+        {
+            "label": "CMake: Build (Release) examples",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "${workspaceFolder}/build-release",
+                "--target",
+                "examples",
+                "--config",
+                "Release",
+                "--parallel"
+            ],
+            "group": "build",
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "detail": "Builds the project in the release folder."
+        },
+        {
+            "label": "Run Busy Ring tiled",
+            "type": "shell",
+            "detail": "Run the release version of busy ring tiled..",
+            "command": "${workspaceFolder}/build-release/bin/tiled-busyring",
+            "args": [
+                "${workspaceFolder}/example/busyring-tiled/tiled-busy-ring.json"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "new"
+            },
+            "dependsOn": "CMake: Build (Release) examples"
+        }     
+    ]
+}

@@ -136,6 +136,35 @@ public:
     const connection_list& connections() const;
 
 private:
+    // -----------------------------------------------------------------
+    // 1)  Per‑domain source index (built once after connections are
+    //     constructed).  This structure lives inside the communicator
+    //     because it is needed only for event‑queue creation.
+    // -----------------------------------------------------------------
+    struct source_index {
+        std::vector<cell_gid_type> src_gid;   // sorted unique source gids
+        std::vector<std::size_t>   begin;     // start offset in connection vectors
+        std::vector<std::size_t>   end;       // one‑past offset
+    };
+
+    // -----------------------------------------------------------------
+    // 2)  Helper to fill src_idx_ – called from update_connections().
+    // -----------------------------------------------------------------
+    void build_source_index();
+
+    // -----------------------------------------------------------------
+    // 3)  Optimised version of make_event_queues().  The old
+    //     implementation is kept behind a pre‑processor guard for
+    //     reference/validation.
+    // -----------------------------------------------------------------
+    void make_event_queues_opt(const spikes& spks,
+                               std::vector<pse_vector>& queues);
+
+    // -----------------------------------------------------------------
+    // 4)  Data members.
+    // -----------------------------------------------------------------
+    std::vector<source_index> src_idx_;  // one per domain
+
     cell_size_type num_total_cells_ = 0;
     cell_size_type num_local_cells_ = 0;
     cell_size_type num_local_groups_ = 0;

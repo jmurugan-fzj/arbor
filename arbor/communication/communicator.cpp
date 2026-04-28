@@ -265,6 +265,8 @@ void communicator::update_connections(const recipe& rec,
     connections_.make(connections_by_src_domain);
     PL(destructure);
     PL(update_conns);
+
+    build_source_index();            // creates src_idx_
 }
 
 std::pair<cell_size_type, cell_size_type> communicator::group_queue_range(cell_size_type i) {
@@ -396,22 +398,184 @@ void append_events_from_domain(const communicator::connection_list& cons, size_t
     }
 }
 
+// ---------------------------------------------------------------------
+// 1)  Build per‑domain source index.
+// ---------------------------------------------------------------------
+void communicator::build_source_index()
+{
+    src_idx_.clear();
+    src_idx_.resize(num_domains_);
+
+    // The global connection vectors are already sorted by (src, domain, target)
+    // thanks to the sorting step in update_connections().
+    for (std::size_t dom = 0; dom < num_domains_; ++dom) {
+        const std::size_t beg = connection_part_[dom];
+        const std::size_t end = connection_part_[dom + 1];
+
+        source_index idx;
+        if (beg == end) { src_idx_[dom] = std::move(idx); continue; }
+
+        idx.src_gid.reserve(end - beg);
+        idx.begin.reserve(end - beg);
+        idx.end.reserve(end - beg);
+
+        // connections_.srcs stores `cell_member_type`; we only need the gid.
+        cell_gid_type cur_src = connections_.srcs[beg].gid;
+        std::size_t cur_begin = beg;
+
+        for (std::size_t i = beg; i < end; ++i) {
+            if (connections_.srcs[i].gid != cur_src) {
+                idx.src_gid.push_back(cur_src);
+                idx.begin.push_back(cur_begin);
+                idx.end.push_back(i);
+                cur_src   = connections_.srcs[i].gid;
+                cur_begin = i;
+            }
+        }
+        // push the final run
+        idx.src_gid.push_back(cur_src);
+        idx.begin.push_back(cur_begin);
+        idx.end.push_back(end);
+
+        src_idx_[dom] = std::move(idx);
+    }
+}
+
+// ---------------------------------------------------------------------
+// 2)  make_event_queues – keep the original version behind a guard.
+// ---------------------------------------------------------------------
 void communicator::make_event_queues(communicator::spikes& spikes,
-                                     std::vector<pse_vector>& queues) {
-    arb_assert(queues.size()==num_local_cells_);
+                                     std::vector<pse_vector>& queues)
+{
+// #define ARB_DISABLE_MAKE_EVENT_QUEUES_OPT
+#ifndef ARB_DISABLE_MAKE_EVENT_QUEUES_OPT
+    make_event_queues_opt(spikes, queues);
+#else
+    // -----------------------------------------------------------------
+    // Original (unoptimised) implementation – unchanged.
+    // -----------------------------------------------------------------
+    arb_assert(queues.size() == num_local_cells_);
     const auto& sp = spikes.from_local.partition();
     const auto& cp = connection_part_;
     for (auto dom: util::make_span(num_domains_)) {
         append_events_from_domain(connections_, cp[dom], cp[dom+1],
-                                  util::subrange_view(spikes.from_local.values(), sp[dom], sp[dom+1]),
+                                  util::subrange_view(spikes.from_local.values(),
+                                                      sp[dom], sp[dom+1]),
                                   queues);
     }
-    num_local_events_ = util::sum_by(queues, [](const auto& q) {return q.size();}, num_local_events_);
-    // Now that all local spikes have been processed; consume the remote events coming in.
-    // - turn all gids into externals
+    num_local_events_ = util::sum_by(queues,
+                                     [](const auto& q){ return q.size(); },
+                                     num_local_events_);
+
+    // Remote (external) spikes.
     std::for_each(spikes.from_remote.begin(), spikes.from_remote.end(),
-                  [](auto& s) { s.source = global_cell_of(s.source); });
-    append_events_from_domain(ext_connections_, 0, ext_connections_.size(), spikes.from_remote, queues);
+                  [](auto& s){ s.source = global_cell_of(s.source); });
+    append_events_from_domain(ext_connections_, 0, ext_connections_.size(),
+                              spikes.from_remote, queues);
+#endif
+}
+
+// ---------------------------------------------------------------------
+// 3)  Optimised implementation (the heavy lifting)
+// ---------------------------------------------------------------------
+void communicator::make_event_queues_opt(const spikes& spks,
+                                         std::vector<pse_vector>& queues)
+{
+    // -------------------------------------------------------------
+    // 3.1 Estimate per‑queue size (optional – improves allocation)
+    // -------------------------------------------------------------
+    std::vector<std::size_t> event_estimate(num_local_cells_, 0);
+    for (const auto& s : spks.from_local.values()) {
+        auto it = src_ranks_.find(s.source);
+        if (it != src_ranks_.end()) {
+            for (auto dom : it->second) ++event_estimate[dom];
+        }
+    }
+    for (cell_size_type i = 0; i < num_local_cells_; ++i) {
+        queues[i].reserve(event_estimate[i] * 4); // factor 4 gives head‑room
+    }
+
+    // -------------------------------------------------------------
+    // 3.2 Internal connections – parallel over domains
+    // -------------------------------------------------------------
+    const auto& sp_local = spks.from_local;
+    const auto& part_spike = sp_local.partition();
+
+    // Lambda processing a single domain.
+    auto process_domain = [&](std::size_t dom)
+    {
+        const source_index& idx = src_idx_[dom];
+        if (idx.src_gid.empty()) return; // nothing to do for this domain
+
+        const std::size_t conn_start = connection_part_[dom];
+        const std::size_t conn_end   = connection_part_[dom+1];
+        (void)conn_end; // silence unused‑variable warning
+
+        // Raw pointers for the slice belonging to this domain.
+        const cell_lid_type* dst_ptr   = connections_.dests.data()   + conn_start;
+        const float*         weight_ptr = connections_.weights.data() + conn_start;
+        const float*         delay_ptr  = connections_.delays.data()  + conn_start;
+
+        // Walk over the *global* spike list (already sorted by source).
+        for (std::size_t rank = 0; rank < src_ranks_.size(); ++rank) {
+            const std::size_t sp_begin = part_spike[rank];
+            const std::size_t sp_end   = part_spike[rank+1];
+
+            for (std::size_t si = sp_begin; si < sp_end; ++si) {
+                const spike& s = sp_local.values()[si];
+                const cell_gid_type src_gid = s.source.gid;
+
+                // binary search in the per‑domain source list
+                auto pos = std::lower_bound(idx.src_gid.begin(),
+                                            idx.src_gid.end(),
+                                            src_gid);
+                if (pos == idx.src_gid.end() || *pos != src_gid) continue;
+
+                const std::size_t idx_pos = std::distance(idx.src_gid.begin(), pos);
+                const std::size_t c_beg = idx.begin[idx_pos];
+                const std::size_t c_end = idx.end[idx_pos];
+
+                const double sp_time = s.time;
+                for (std::size_t ci = c_beg; ci < c_end; ++ci) {
+                    const cell_lid_type dst = dst_ptr[ci];
+                    const float wgt = weight_ptr[ci];
+                    const float del = delay_ptr[ci];
+                    queues[dst].emplace_back(dst, sp_time + del, wgt);
+                }
+            }
+        }
+    };
+
+    // Parallel dispatch over domains – using Arbor’s thread‑pool helper.
+    arb::threading::parallel_for::apply(
+        0,
+        static_cast<int>(num_domains_),
+        ctx_->thread_pool.get(),
+        [&](int dom){ process_domain(static_cast<std::size_t>(dom)); });
+
+    // -------------------------------------------------------------
+    // 3.3 External connections (usually very few)
+    // -------------------------------------------------------------
+    if (!ext_connections_.srcs.empty()) {
+        const std::size_t n_ext = ext_connections_.size();
+        for (const auto& s : spks.from_remote) {
+            const cell_gid_type src = s.source.gid;       // already external (MSB set)
+            const double sp_time = s.time;
+            for (std::size_t i = 0; i < n_ext; ++i) {
+                if (ext_connections_.srcs[i].gid != src) continue;
+                const cell_lid_type dst = ext_connections_.dests[i];
+                const float wgt = ext_connections_.weights[i];
+                const float del = ext_connections_.delays[i];
+                queues[dst].emplace_back(dst, sp_time + del, wgt);
+            }
+        }
+    }
+
+    // -------------------------------------------------------------
+    // 3.4 Update statistics (unchanged)
+    // -------------------------------------------------------------
+    num_local_events_ = 0;
+    for (const auto& q : queues) num_local_events_ += q.size();
 }
 
 std::uint64_t communicator::num_spikes() const { return num_spikes_; }

@@ -1,0 +1,27 @@
+{
+    "name": "cortex",
+    "num-cells": 1024,
+    "num-tiles": 32768,
+    "synapses": 10000,
+    "min-delay": 5,
+    "duration": 200,
+    "ring-size": 4,
+    "event-weight": 0.2,
+    "record": false,
+    "spikes": false,
+    "dt": 0.025,
+    "depth": 2,
+    "complex": false,
+    "branch-probs": [
+        1,
+        0.5
+    ],
+    "compartments": [
+        2,
+        1
+    ],
+    "lengths": [
+        20,
+        2
+    ]
+}

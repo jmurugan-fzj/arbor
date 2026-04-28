@@ -1,0 +1,65 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug Arbor (gdb)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build-debug/bin/arbor",   // <-- change to your executable
+            "args": [],                                              // <-- add any CLI args here
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                 {
+                    "description": "Enable pretty‑printing for STL",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "CMake: Build (Debug)"                 // ensures latest build
+        },
+        {
+            "name": "Debug Busy Ring tiled (gdb)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build-debug/bin/tiled-busyring",   // <-- change to your executable
+            "args": ["${workspaceFolder}/example/busyring-tiled/tiled-busy-ring.json"],                                              // <-- add any CLI args here
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                 {
+                    "description": "Enable pretty‑printing for STL",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "CMake: Build (Debug) examples"                 // ensures latest build
+        },
+        // {
+        //     "name": "Run Busy Ring tiled (gdb)",
+        //     "type": "cppdbg",
+        //     "request": "launch",
+        //     "program": "${workspaceFolder}/build-release/bin/tiled-busyring",   // <-- change to your executable
+        //     "args": ["${workspaceFolder}/example/busyring-tiled/tiled-busy-ring.json"],                                              // <-- add any CLI args here
+        //     "stopAtEntry": false,
+        //     "cwd": "${workspaceFolder}",
+        //     "environment": [],
+        //     "externalConsole": false,
+        //     "MIMode": "gdb",
+        //     "setupCommands": [
+        //          {
+        //             "description": "Enable pretty‑printing for STL",
+        //             "text": "-enable-pretty-printing",
+        //             "ignoreFailures": true
+        //         }
+        //     ],
+        //     "preLaunchTask": "CMake: Build (Release) examples"                 // ensures latest build
+        // }             
+    ]
+}
